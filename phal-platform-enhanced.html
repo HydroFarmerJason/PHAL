@@ -1410,6 +1410,7 @@
     
     <!-- PHAL Platform Core Implementation -->
     <script>
+        (function() {
         /**
          * PHAL Platform v3.0 - Core Implementation
          * 
@@ -3324,8 +3325,9 @@
             `;
             
             showModal(content, { title: 'pH Adjustment', maxWidth: '400px' });
-            
-            document.getElementById('phAdjustForm').addEventListener('submit', async (e) => {
+
+            const phForm = document.getElementById('phAdjustForm');
+            if (phForm) phForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
                 
@@ -4725,7 +4727,8 @@
             `;
             
             // Close on backdrop click
-            modalContainer.querySelector('.modal').addEventListener('click', (e) => {
+            const modalEl = modalContainer.querySelector('.modal');
+            if (modalEl) modalEl.addEventListener('click', (e) => {
                 if (e.target.classList.contains('modal')) {
                     closeModal();
                 }
@@ -4816,7 +4819,8 @@
             showModal(content, { title: 'Log Harvest', maxWidth: '500px' });
             
             // Handle form submission
-            document.getElementById('harvestForm').addEventListener('submit', async (e) => {
+            const harvestForm = document.getElementById('harvestForm');
+            if (harvestForm) harvestForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
                 const data = Object.fromEntries(formData);
@@ -4925,7 +4929,8 @@
             });
             
             // Handle form submission
-            document.getElementById('maintenanceForm').addEventListener('submit', async (e) => {
+            const maintForm = document.getElementById('maintenanceForm');
+            if (maintForm) maintForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
                 const data = Object.fromEntries(formData);
@@ -5026,7 +5031,8 @@
             });
             
             // Handle form submission
-            document.getElementById('recipeForm').addEventListener('submit', async (e) => {
+            const recipeForm = document.getElementById('recipeForm');
+            if (recipeForm) recipeForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
                 const data = Object.fromEntries(formData);
@@ -5241,7 +5247,8 @@
             };
             
             // Handle form submission
-            document.getElementById('dosingForm').addEventListener('submit', async (e) => {
+            const dosingForm = document.getElementById('dosingForm');
+            if (dosingForm) dosingForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
                 const data = Object.fromEntries(formData);
@@ -5308,7 +5315,8 @@
                 </form>
             `, { title: 'Edit Light Schedule', maxWidth: '400px' });
             
-            document.getElementById('lightScheduleForm').addEventListener('submit', async (e) => {
+            const lightForm = document.getElementById('lightScheduleForm');
+            if (lightForm) lightForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
                 
@@ -5533,7 +5541,8 @@
                 </form>
             `, { title: 'Create New Zone', maxWidth: '500px' });
             
-            document.getElementById('createZoneForm').addEventListener('submit', async (e) => {
+            const createZoneForm = document.getElementById('createZoneForm');
+            if (createZoneForm) createZoneForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
                 
@@ -5593,7 +5602,8 @@
                 </form>
             `, { title: 'Edit Zone', maxWidth: '500px' });
             
-            document.getElementById('editZoneForm').addEventListener('submit', async (e) => {
+            const editZoneForm = document.getElementById('editZoneForm');
+            if (editZoneForm) editZoneForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
                 
@@ -5700,7 +5710,8 @@
                 </form>
             `, { title: 'Complete Maintenance', maxWidth: '500px' });
             
-            document.getElementById('completeMaintenanceForm').addEventListener('submit', async (e) => {
+            const completeForm = document.getElementById('completeMaintenanceForm');
+            if (completeForm) completeForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
                 const actions = formData.getAll('actions');
@@ -5862,7 +5873,8 @@
                 </form>
             `, { title: 'Export Data', maxWidth: '500px' });
             
-            document.getElementById('exportForm').addEventListener('submit', async (e) => {
+            const exportForm = document.getElementById('exportForm');
+            if (exportForm) exportForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
                 const exportButton = document.getElementById('exportButton');
@@ -7190,7 +7202,8 @@ ws.on('message', (event) => {
                 </form>
             `, { title: 'Share Recipe with Community', maxWidth: '500px' });
             
-            document.getElementById('shareRecipeForm').addEventListener('submit', async (e) => {
+            const shareForm = document.getElementById('shareRecipeForm');
+            if (shareForm) shareForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
                 
@@ -7308,7 +7321,7 @@ ws.on('message', (event) => {
         }
 
         // Execute command
-        function executeCommand(commandId) {
+        window.executeCommand = function(commandId) {
             const command = commands.find(c => c.id === commandId);
             if (command && command.action) {
                 closeCommandPalette();
@@ -7676,6 +7689,7 @@ ws.on('message', (event) => {
         } else {
             initialize();
         }
+        })();
     </script>
 </body>
 </html>
