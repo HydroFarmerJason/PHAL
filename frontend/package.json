@@ -1,0 +1,35 @@
+{
+  "name": "phal-frontend",
+  "version": "3.0.0",
+  "description": "PHAL Platform Frontend Dashboard",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "build": "echo 'No build step required for vanilla JS'",
+    "test": "echo 'No tests configured'",
+    "lint": "eslint *.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HydroFarmerJason/PHAL.git"
+  },
+  "keywords": [
+    "agriculture",
+    "hydroponics",
+    "automation",
+    "dashboard",
+    "iot"
+  ],
+  "author": "Jason DeLooze",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/HydroFarmerJason/PHAL/issues"
+  },
+  "homepage": "https://github.com/HydroFarmerJason/PHAL#readme",
+  "devDependencies": {
+    "eslint": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
