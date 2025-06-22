@@ -255,10 +255,10 @@ Report security vulnerabilities to osce@duck.com
 Support PHAL development:
 
 ### Platinum Sponsors
-<a href="https://phal.io/sponsors"><img src="docs/images/sponsor-placeholder.png" height="60"></a>
+
 
 ### Gold Sponsors
-<a href="https://phal.io/sponsors"><img src="docs/images/sponsor-placeholder.png" height="40"></a>
+
 
 [Become a sponsor](https://github.com/sponsors/HydroFarmerJason)
 
