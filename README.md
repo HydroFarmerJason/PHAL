@@ -1,4 +1,4 @@
-```markdown
+```
 # PHAL Platform v3.0 - The Open Agricultural Operating System
 
 <div align="center">
