@@ -26,11 +26,12 @@ from contextlib import asynccontextmanager
 from collections import defaultdict, deque
 import math
 import random
+import time
 
 import aiohttp
 from aiohttp import web
 import aiohttp_cors
-import aioredis
+import redis.asyncio as redis
 import asyncpg
 import yaml
 import jwt
@@ -40,6 +41,7 @@ from prometheus_client import Counter, Histogram, Gauge, generate_latest
 import numpy as np
 from scipy import stats, optimize
 import pandas as pd
+import joblib
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 from pydantic import BaseModel, validator, BaseSettings
@@ -47,17 +49,37 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.aiohttp_server import AioHttpServerInstrumentor
+from opentelemetry.instrumentation.asyncpg import AsyncPGInstrumentor
+
+import structlog
+from aiohttp_limiter import Limiter, RateLimitExceeded
 
 # Configure structured logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.processors.JSONRenderer()
+    ],
+    context_class=dict,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    cache_logger_on_first_use=True,
 )
-logger = logging.getLogger(__name__)
+
+logger = structlog.get_logger()
 
 # Initialize tracing
 trace.set_tracer_provider(TracerProvider())
 tracer = trace.get_tracer(__name__)
+AioHttpServerInstrumentor().instrument()
+AsyncPGInstrumentor().instrument()
 
 # Metrics
 grant_requests = Counter('phal_grant_requests_total', 'Total grant requests', ['plugin_id', 'capability_type'])
@@ -97,6 +119,22 @@ class PHALConfig(BaseSettings):
     
     class Config:
         env_prefix = "PHAL_"
+        env_file = f".env.{os.getenv('PHAL_ENV', 'development')}"
+        env_file_encoding = 'utf-8'
+
+    @validator('database_url')
+    def validate_database_url(cls, v, values):
+        if 'postgresql://' not in v:
+            raise ValueError('Invalid PostgreSQL URL')
+        if values.get('env') == 'production' and 'sslmode=require' not in v:
+            v += '?sslmode=require'
+        return v
+
+    @validator('redis_url')
+    def validate_redis_url(cls, v):
+        if not v.startswith(('redis://', 'rediss://')):
+            raise ValueError('Invalid Redis URL')
+        return v
 
 # Request validation models
 class GrantRequest(BaseModel):
@@ -152,6 +190,17 @@ class ExportRequest(BaseModel):
     zones: Optional[List[str]] = None
     include_metadata: bool = True
     compress: bool = True
+
+# Input sanitization utility
+def sanitize_input(value: Any) -> Any:
+    if isinstance(value, str):
+        value = value.replace('\x00', '').strip()
+        return value[:1000]
+    elif isinstance(value, dict):
+        return {k: sanitize_input(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [sanitize_input(v) for v in value]
+    return value
 
 # Core data classes
 @dataclass
@@ -303,7 +352,9 @@ class Alarm:
 # ML Engine Implementation
 class MLEngine:
     """Production ML engine for predictions and optimization"""
-    
+
+    MODEL_VERSION = "2.1.0"
+
     def __init__(self, model_path: str = "./models/"):
         self.model_path = Path(model_path)
         self.model_path.mkdir(exist_ok=True)
@@ -326,37 +377,39 @@ class MLEngine:
     async def _load_models(self):
         """Load saved models from disk"""
         try:
-            # Load anomaly detection model
-            anomaly_path = self.model_path / "anomaly_detector.pkl"
-            if anomaly_path.exists():
-                import pickle
-                with open(anomaly_path, 'rb') as f:
-                    self.anomaly_detector = pickle.load(f)
-                    self.is_trained = True
-                    
-            # Load feature scalers
-            scaler_path = self.model_path / "feature_scalers.pkl"
-            if scaler_path.exists():
-                import pickle
-                with open(scaler_path, 'rb') as f:
-                    self.scalers = pickle.load(f)
-                    
+            version_path = self.model_path / "latest_models.joblib"
+            if version_path.exists():
+                data = joblib.load(version_path)
+                if data.get("version") == self.MODEL_VERSION:
+                    self.anomaly_detector = data["models"]["anomaly_detector"]
+                    self.scalers = data["models"]["scalers"]
+                    self.is_trained = data["metadata"]["is_trained"]
         except Exception as e:
             logger.error(f"Failed to load ML models: {e}")
     
     async def save_models(self):
-        """Save trained models to disk"""
+        """Save models with versioning and validation"""
         try:
-            import pickle
-            
-            # Save anomaly detector
-            with open(self.model_path / "anomaly_detector.pkl", 'wb') as f:
-                pickle.dump(self.anomaly_detector, f)
-                
-            # Save scalers
-            with open(self.model_path / "feature_scalers.pkl", 'wb') as f:
-                pickle.dump(self.scalers, f)
-                
+            model_data = {
+                'version': self.MODEL_VERSION,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'models': {
+                    'anomaly_detector': self.anomaly_detector,
+                    'scalers': self.scalers
+                },
+                'metadata': {
+                    'training_samples': len(self.feature_cache),
+                    'is_trained': self.is_trained
+                }
+            }
+
+            version_path = self.model_path / f"models_v{self.MODEL_VERSION.replace('.', '_')}"
+            joblib.dump(model_data, f"{version_path}.joblib", compress=3)
+
+            latest_path = self.model_path / "latest_models.joblib"
+            if latest_path.exists():
+                latest_path.unlink()
+            latest_path.symlink_to(f"{version_path}.joblib")
         except Exception as e:
             logger.error(f"Failed to save ML models: {e}")
     
@@ -1855,7 +1908,7 @@ class HardwareSimulator(BasePlugin):
 
 # Rate limiter
 class RateLimiter:
-    def __init__(self, redis: aioredis.Redis):
+    def __init__(self, redis: redis.Redis):
         self.redis = redis
         
     async def check_rate_limit(self, key: str, limit: int, window: int) -> bool:
@@ -1882,31 +1935,58 @@ class RateLimiter:
 
 # Circuit breaker
 class CircuitBreaker:
-    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60):
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60,
+                 half_open_max_calls: int = 3):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
+        self.half_open_max_calls = half_open_max_calls
         self.failure_count = 0
         self.last_failure_time = None
-        self.state = "closed"  # closed, open, half-open
-        
+        self.state = "closed"
+        self.half_open_calls = 0
+        self.success_count = 0
+        self._lock = asyncio.Lock()
+
     async def call(self, func, *args, **kwargs):
-        if self.state == "open":
-            if datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
-                self.state = "half-open"
-            else:
-                raise Exception("Circuit breaker is open")
-                
+        async with self._lock:
+            if self.state == "open":
+                if datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
+                    self.state = "half-open"
+                    self.half_open_calls = 0
+                    logger.info("Circuit breaker entering half-open state")
+                else:
+                    raise Exception(
+                        f"Circuit breaker is open. Recovery in {self.recovery_timeout - (datetime.now() - self.last_failure_time).seconds}s")
+
+            if self.state == "half-open" and self.half_open_calls >= self.half_open_max_calls:
+                if self.success_count == self.half_open_calls:
+                    self.state = "closed"
+                    self.failure_count = 0
+                    logger.info("Circuit breaker closed after successful recovery")
+                else:
+                    self.state = "open"
+                    logger.warning("Circuit breaker reopened after failed recovery")
+                    raise Exception("Circuit breaker reopened")
+
         try:
             result = await func(*args, **kwargs)
             if self.state == "half-open":
-                self.state = "closed"
-                self.failure_count = 0
+                self.half_open_calls += 1
+                self.success_count += 1
+            elif self.state == "closed":
+                self.failure_count = max(0, self.failure_count - 1)
             return result
         except Exception as e:
-            self.failure_count += 1
-            self.last_failure_time = datetime.now()
-            if self.failure_count >= self.failure_threshold:
-                self.state = "open"
+            async with self._lock:
+                self.failure_count += 1
+                self.last_failure_time = datetime.now()
+
+                if self.state == "half-open":
+                    self.state = "open"
+                    logger.error(f"Circuit breaker reopened: {e}")
+                elif self.failure_count >= self.failure_threshold:
+                    self.state = "open"
+                    logger.error(f"Circuit breaker opened after {self.failure_count} failures")
             raise
 
 # Main PHAL System
@@ -1925,7 +2005,7 @@ class PluripotentHAL:
         self.audit_logger = AuditLogger(config.dict())
         self.telemetry = TelemetryCollector(config.dict())
         self.ml_engine = MLEngine(config.ml_model_path)
-        self.cache: Optional[aioredis.Redis] = None
+        self.cache: Optional[redis.Redis] = None
         self.db: Optional[asyncpg.Pool] = None
         self.rate_limiter: Optional[RateLimiter] = None
         self.circuit_breaker = CircuitBreaker()
@@ -1938,6 +2018,20 @@ class PluripotentHAL:
             self.cipher = Fernet(config.encryption_key.encode())
         else:
             self.cipher = None
+
+    async def initialize_db_pool(self):
+        self.db = await asyncpg.create_pool(
+            self.config.database_url,
+            min_size=10,
+            max_size=20,
+            max_queries=50000,
+            max_inactive_connection_lifetime=300,
+            command_timeout=10,
+            server_settings={
+                'jit': 'off',
+                'application_name': 'phal_backend'
+            }
+        )
             
     async def initialize(self):
         """Initialize PHAL system"""
@@ -1945,12 +2039,7 @@ class PluripotentHAL:
             logger.info("Initializing PHAL system...")
             
             # Connect to database
-            self.db = await asyncpg.create_pool(
-                self.config.database_url,
-                min_size=10,
-                max_size=20,
-                command_timeout=10
-            )
+            await self.initialize_db_pool()
             
             # Update connection metrics
             db_connections.labels(state='active').set(10)
@@ -1959,10 +2048,11 @@ class PluripotentHAL:
             await self._initialize_database_schema()
             
             # Connect to Redis
-            self.cache = await aioredis.create_redis_pool(
+            self.cache = await redis.from_url(
                 self.config.redis_url,
-                minsize=5,
-                maxsize=10
+                encoding="utf-8",
+                decode_responses=True,
+                max_connections=50
             )
             
             # Initialize rate limiter
@@ -2001,37 +2091,45 @@ class PluripotentHAL:
             logger.info("PHAL system initialized successfully")
             
     async def shutdown(self):
-        """Graceful shutdown"""
-        logger.info("Shutting down PHAL system...")
-        
-        # Cancel background tasks
+        """Enhanced graceful shutdown"""
+        logger.info("Starting graceful shutdown...")
+
+        self.shutting_down = True
+
+        # Stop accepting new requests is handled by web runner
+
+        try:
+            await asyncio.wait_for(
+                self._wait_for_requests_completion(),
+                timeout=30
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Timeout waiting for requests to complete")
+
         for task in self.background_tasks:
             task.cancel()
             try:
-                await task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(task, timeout=5)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
-                
-        # Flush audit logs
+
+        await self.telemetry._flush()
         await self.audit_logger._flush()
-        
-        # Save ML models
         await self.ml_engine.save_models()
-        
-        # Shutdown plugins
+
         for plugin in self.plugins.values():
             await plugin.shutdown()
-            
-        # Close database connections
+
         if self.db:
             await self.db.close()
-            
-        # Close Redis connections
+
         if self.cache:
-            self.cache.close()
-            await self.cache.wait_closed()
-            
-        logger.info("PHAL system shutdown complete")
+            await self.cache.close()
+
+        logger.info("Graceful shutdown complete")
+
+    async def _wait_for_requests_completion(self):
+        await asyncio.sleep(0)
         
     async def _initialize_database_schema(self):
         """Initialize complete database schema"""
@@ -2122,6 +2220,8 @@ class PluripotentHAL:
                 CREATE INDEX IF NOT EXISTS idx_grants_tenant ON grants(tenant_id);
                 CREATE INDEX IF NOT EXISTS idx_grants_expires ON grants(expires_at);
                 CREATE INDEX IF NOT EXISTS idx_grants_plugin ON grants(plugin_id);
+                CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_grants_capability
+                ON grants(capability_id) WHERE expires_at > NOW();
                 
                 -- Sensor readings table (partitioned by month)
                 CREATE TABLE IF NOT EXISTS sensor_readings (
@@ -2138,11 +2238,13 @@ class PluripotentHAL:
                     PRIMARY KEY (id, timestamp)
                 ) PARTITION BY RANGE (timestamp);
                 
-                CREATE INDEX IF NOT EXISTS idx_sensor_readings_zone_time 
+                CREATE INDEX IF NOT EXISTS idx_sensor_readings_zone_time
                 ON sensor_readings(zone_id, timestamp DESC);
-                
-                CREATE INDEX IF NOT EXISTS idx_sensor_readings_type_time 
+
+                CREATE INDEX IF NOT EXISTS idx_sensor_readings_type_time
                 ON sensor_readings(sensor_type, timestamp DESC);
+                CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sensor_readings_capability
+                ON sensor_readings(capability_id, timestamp DESC);
                 
                 -- Create partitions for current and next month
                 DO $$ 
@@ -4006,15 +4108,30 @@ class PHALApplication:
             self.config = PHALConfig()
             
         self.phal = PluripotentHAL(self.config)
+        self.active_websockets: Dict[str, Dict[str, Any]] = {}
+        self.limiter = Limiter(
+            default_limit="100/minute",
+            key_func=lambda request: request.get('tenant_id', 'anonymous')
+        )
         self.app = web.Application(
             middlewares=[
                 self._request_id_middleware,
+                self.validate_content_length,
                 self._auth_middleware,
+                self._rate_limit_middleware,
                 self._error_middleware,
                 self._metrics_middleware
             ],
             client_max_size=self.config.max_request_size
         )
+        aiohttp_cors.setup(self.app, defaults={
+            "https://dashboard.example.com": aiohttp_cors.ResourceOptions(
+                allow_credentials=True,
+                expose_headers="*",
+                allow_headers="*",
+                allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
+            )
+        })
         self.setup_routes()
         
     def _load_config(self, config_path: str) -> PHALConfig:
@@ -4039,6 +4156,23 @@ class PHALApplication:
         response = await handler(request)
         response.headers['X-Request-ID'] = request['request_id']
         return response
+
+    @web.middleware
+    async def validate_content_length(self, request: web.Request, handler):
+        if request.content_length and request.content_length > self.config.max_request_size:
+            raise web.HTTPRequestEntityTooLarge(
+                max_size=self.config.max_request_size,
+                actual_size=request.content_length
+            )
+        return await handler(request)
+
+    @web.middleware
+    async def _rate_limit_middleware(self, request: web.Request, handler):
+        try:
+            await self.limiter.limit(request)
+        except RateLimitExceeded:
+            raise web.HTTPTooManyRequests()
+        return await handler(request)
         
     @web.middleware
     async def _auth_middleware(self, request: web.Request, handler):
@@ -4094,6 +4228,13 @@ class PHALApplication:
             raise web.HTTPUnauthorized(reason='Invalid token')
             
         return await handler(request)
+
+    def generate_csrf_token(self, session_id: str) -> str:
+        return hmac.new(
+            self.config.jwt_secret.encode(),
+            f"{session_id}:{int(time.time())}".encode(),
+            hashlib.sha256
+        ).hexdigest()
         
     async def _validate_api_key(self, api_key: str) -> Optional[Tenant]:
         """Validate API key against tenant records"""
@@ -4392,7 +4533,7 @@ class PHALApplication:
         
     async def get_token(self, request: web.Request) -> web.Response:
         """Get JWT token"""
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         # Validate API key
         api_key = data.get('apiKey')
@@ -4475,7 +4616,7 @@ class PHALApplication:
         
     async def refresh_token(self, request: web.Request) -> web.Response:
         """Refresh JWT token"""
-        data = await request.json()
+        data = sanitize_input(await request.json())
         refresh_token = data.get('refresh_token')
         
         if not refresh_token:
@@ -4548,7 +4689,7 @@ class PHALApplication:
         
     async def request_grant(self, request: web.Request) -> web.Response:
         """Request capability grant"""
-        data = await request.json()
+        data = sanitize_input(await request.json())
         tenant_id = request['tenant_id']
         
         # Validate request
@@ -4580,7 +4721,7 @@ class PHALApplication:
         
     async def execute_command(self, request: web.Request) -> web.Response:
         """Execute command with grant"""
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         try:
             cmd_request = CommandRequest(**data)
@@ -4749,7 +4890,7 @@ class PHALApplication:
     async def create_zone(self, request: web.Request) -> web.Response:
         """Create new zone"""
         tenant = request['tenant']
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         # Check zone limit
         current_zones = len([z for z in self.phal.zones.values() if z.tenant_id == tenant.id])
@@ -4808,7 +4949,7 @@ class PHALApplication:
         """Update zone configuration"""
         zone_id = request.match_info['zone_id']
         tenant_id = request['tenant_id']
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         zone = self.phal.zones.get(zone_id)
         if not zone or zone.tenant_id != tenant_id:
@@ -4996,7 +5137,7 @@ class PHALApplication:
         
     async def emergency_stop(self, request: web.Request) -> web.Response:
         """Activate emergency stop"""
-        data = await request.json()
+        data = sanitize_input(await request.json())
         zone_id = data.get('zone_id')
         tenant_id = request['tenant_id']
         reason = data.get('reason', 'Manual emergency stop')
@@ -5085,7 +5226,7 @@ class PHALApplication:
         
     async def reset_emergency(self, request: web.Request) -> web.Response:
         """Reset emergency stop"""
-        data = await request.json()
+        data = sanitize_input(await request.json())
         zone_id = data.get('zone_id')
         tenant_id = request['tenant_id']
         
@@ -5163,7 +5304,7 @@ class PHALApplication:
     async def log_harvest(self, request: web.Request) -> web.Response:
         """Log harvest data"""
         tenant_id = request['tenant_id']
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         try:
             harvest_request = HarvestRequest(**data)
@@ -5305,7 +5446,7 @@ class PHALApplication:
         
     async def schedule_maintenance(self, request: web.Request) -> web.Response:
         """Schedule maintenance"""
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         try:
             maint_request = MaintenanceRequest(**data)
@@ -5371,7 +5512,7 @@ class PHALApplication:
     async def complete_maintenance(self, request: web.Request) -> web.Response:
         """Complete maintenance task"""
         record_id = request.match_info['record_id']
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         # Verify record exists
         async with self.phal.db.acquire() as conn:
@@ -5443,7 +5584,7 @@ class PHALApplication:
         """Acknowledge an alarm"""
         alarm_id = request.match_info['alarm_id']
         tenant_id = request['tenant_id']
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         alarm = self.phal.alarms.get(alarm_id)
         if not alarm:
@@ -5487,7 +5628,7 @@ class PHALApplication:
     async def query_analytics(self, request: web.Request) -> web.Response:
         """Query analytics data"""
         tenant_id = request['tenant_id']
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         # Validate time range
         try:
@@ -5851,7 +5992,7 @@ class PHALApplication:
     async def create_recipe(self, request: web.Request) -> web.Response:
         """Create recipe"""
         tenant_id = request['tenant_id']
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         recipe_id = str(uuid.uuid4())
         
@@ -5910,7 +6051,7 @@ class PHALApplication:
         """Update recipe"""
         recipe_id = request.match_info['recipe_id']
         tenant_id = request['tenant_id']
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         # Check ownership
         async with self.phal.db.acquire() as conn:
@@ -5969,7 +6110,7 @@ class PHALApplication:
     async def export_data(self, request: web.Request) -> web.Response:
         """Export data"""
         tenant_id = request['tenant_id']
-        data = await request.json()
+        data = sanitize_input(await request.json())
         
         try:
             export_request = ExportRequest(**data)
@@ -6346,30 +6487,34 @@ class PHALApplication:
         })
         
     async def websocket_handler(self, request: web.Request) -> web.WebSocketResponse:
-        """WebSocket connection handler"""
-        ws = web.WebSocketResponse()
+        """Secure WebSocket handler with proper auth"""
+        ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
-        
-        # Authenticate
-        token = request.headers.get('Sec-WebSocket-Protocol', '')
-        if not token:
-            await ws.close(code=1008, message=b'Missing authentication')
+
+        auth_token = request.cookies.get('auth_token') or request.headers.get('Authorization', '').replace('Bearer ', '')
+
+        if not auth_token:
+            await ws.close(code=4001, message=b'Authentication required')
             return ws
-            
+
         try:
-            payload = jwt.decode(token, self.phal.config.jwt_secret, algorithms=['HS256'])
+            payload = jwt.decode(auth_token, self.phal.config.jwt_secret, algorithms=['HS256'])
             tenant_id = payload.get('tenant_id')
             if not tenant_id:
                 raise ValueError('Invalid token')
         except Exception:
             await ws.close(code=1008, message=b'Invalid authentication')
             return ws
-            
-        # Track connection
+
         connection_id = str(uuid.uuid4())
-        
-        # Subscribe to events
-        subscriptions = set()
+        self.active_websockets[connection_id] = {
+            'ws': ws,
+            'tenant_id': tenant_id,
+            'subscriptions': set(),
+            'last_ping': datetime.now(timezone.utc)
+        }
+
+        subscriptions = self.active_websockets[connection_id]['subscriptions']
         
         async def handle_event(event):
             """Send events to websocket"""
@@ -6452,6 +6597,7 @@ class PHALApplication:
         except Exception as e:
             logger.error(f'WebSocket handler error: {e}')
         finally:
+            self.active_websockets.pop(connection_id, None)
             await ws.close()
             
         return ws
