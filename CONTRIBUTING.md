@@ -17,8 +17,7 @@ Before creating bug reports, please check existing issues as you might find out 
 * Provide specific examples to demonstrate the steps
 * Describe the behavior you observed after following the steps
 * Explain which behavior you expected to see instead and why
-* Include screenshots if possible
-* Include your environment details (OS, Python version, browser, etc.)
+* Include screenshots and animated GIFs if possible
 
 ### Suggesting Enhancements
 
@@ -28,13 +27,14 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 * Provide a step-by-step description of the suggested enhancement
 * Provide specific examples to demonstrate the steps
 * Describe the current behavior and explain which behavior you expected to see instead
-* Explain why this enhancement would be useful to most PHAL users
+* Explain why this enhancement would be useful
 
 ### Pull Requests
 
 * Fill in the required template
 * Do not include issue numbers in the PR title
-* Follow the Python style guide (PEP 8)
+* Include screenshots and animated GIFs in your pull request whenever possible
+* Follow the JavaScript/TypeScript styleguides
 * Include thoughtfully-worded, well-structured tests
 * Document new code
 * End all files with a newline
@@ -48,27 +48,7 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 5. Make sure your code lints
 6. Issue that pull request!
 
-### Setup Development Environment
-
-```bash
-# Clone your fork
-git clone https://github.com/your-username/PHAL.git
-cd phal
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install development dependencies
-pip install -r requirements-dev.txt
-
-# Run tests
-pytest
-
-# Run linting
-flake8 backend/src/
-black backend/src/ --check
-```
+## Styleguides
 
 ### Git Commit Messages
 
@@ -76,43 +56,19 @@ black backend/src/ --check
 * Use the imperative mood ("Move cursor to..." not "Moves cursor to...")
 * Limit the first line to 72 characters or less
 * Reference issues and pull requests liberally after the first line
+* Follow [Conventional Commits](https://www.conventionalcommits.org/) specification
 
-### Python Style Guide
+### JavaScript/TypeScript Styleguide
 
-* Follow PEP 8
-* Use type hints where possible
-* Write docstrings for all public methods
-* Keep functions focused and small
+* Use TypeScript for new code
+* Follow the [Airbnb JavaScript Style Guide](https://github.com/airbnb/javascript)
 * Use meaningful variable names
+* Comment your code where necessary
+* Keep functions small and focused
 
-### JavaScript Style Guide
+### Documentation Styleguide
 
-* Use ES6+ features
-* Use async/await over promises where possible
-* Comment complex logic
-* Keep components modular and reusable
-
-## Growing Recipe Contributions
-
-We especially welcome contributions of successful growing recipes! To contribute a recipe:
-
-1. Use the recipe template in `examples/recipes/template.json`
-2. Include detailed environmental parameters for each growth stage
-3. Document any special considerations or tips
-4. Include yield data if available
-5. Add attribution and license information
-
-## Plugin Development
-
-See our [Plugin Development Guide](docs/plugin-development.md) for detailed information on creating PHAL plugins.
-
-## Community
-
-* [GitHub Discussions](https://github.com/HydroFarmerJason/PHAL/discussions)
-* [GitHub Issues](https://github.com/HydroFarmerJason/PHAL/issues)
-
-## Recognition
-
-Contributors who submit accepted PRs will be added to our [Contributors list](CONTRIBUTORS.md) and receive recognition in the project.
-
-Thank you for contributing to the future of open agriculture! 🌱
+* Use Markdown
+* Reference functions and classes in backticks: `functionName()`
+* Use code blocks for examples
+* Keep line length to 80 characters where possible

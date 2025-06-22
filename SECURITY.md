@@ -2,90 +2,36 @@
 
 ## Supported Versions
 
-We release patches for security vulnerabilities. Which versions are eligible for receiving such patches depends on the CVSS v3.0 Rating:
-
 | Version | Supported          |
 | ------- | ------------------ |
 | 3.0.x   | :white_check_mark: |
-| 2.0.x   | :white_check_mark: |
-| 1.0.x   | :x:                |
+| 2.x.x   | :x:                |
+| 1.x.x   | :x:                |
 
 ## Reporting a Vulnerability
 
-The PHAL team takes security bugs seriously. We appreciate your efforts to responsibly disclose your findings, and will make every effort to acknowledge your contributions.
+We take the security of PHAL seriously. If you believe you have found a security vulnerability, please report it to us as described below.
 
-To report a security vulnerability, please use the GitHub Security Advisory ["Report a Vulnerability"](https://github.com/HydroFarmerJason/PHAL/security/advisories/new) tab.
+**Please do not report security vulnerabilities through public GitHub issues.**
 
-The PHAL team will send a response indicating the next steps in handling your report. After the initial reply to your report, we will keep you informed of the progress towards a fix and full announcement, and may ask for additional information or guidance.
+Instead, please report them via email to security@phal.io. You should receive a response within 48 hours. If for some reason you do not, please follow up via email to ensure we received your original message.
 
-Report security bugs in third-party modules to the person or team maintaining the module.
+Please include the requested information listed below (as much as you can provide) to help us better understand the nature and scope of the possible issue:
 
-## Disclosure Policy
+* Type of issue (e.g. buffer overflow, SQL injection, cross-site scripting, etc.)
+* Full paths of source file(s) related to the manifestation of the issue
+* The location of the affected source code (tag/branch/commit or direct URL)
+* Any special configuration required to reproduce the issue
+* Step-by-step instructions to reproduce the issue
+* Proof-of-concept or exploit code (if possible)
+* Impact of the issue, including how an attacker might exploit the issue
 
-When we receive a security bug report, we will:
+This information will help us triage your report more quickly.
 
-1. Confirm the problem and determine the affected versions
-2. Audit code to find any potential similar problems
-3. Prepare fixes for all releases still under maintenance
-4. Release new security fix versions
+## Preferred Languages
 
-## Security Best Practices
+We prefer all communications to be in English.
 
-When deploying PHAL:
+## Policy
 
-### API Security
-- Always use HTTPS in production
-- Rotate API keys regularly
-- Use strong JWT secrets (32+ characters)
-- Enable rate limiting
-- Implement proper CORS policies
-
-### Database Security
-- Use strong passwords for all databases
-- Enable SSL/TLS for database connections
-- Regular backups with encryption
-- Restrict database access by IP
-
-### Hardware Security
-- Isolate control systems from public networks
-- Use VPNs for remote access
-- Regular firmware updates
-- Physical security for critical hardware
-
-### Data Protection
-- Encrypt sensitive data at rest
-- Use secure communication protocols (MQTTS, HTTPS)
-- Regular security audits
-- Comply with local data protection regulations
-
-## Security Features
-
-PHAL includes several security features:
-
-- JWT-based authentication
-- Role-based access control (RBAC)
-- Audit logging of all system actions
-- Encrypted storage for sensitive configuration
-- Input validation and sanitization
-- SQL injection protection
-- XSS prevention
-- CSRF protection
-
-## Dependencies
-
-We regularly update dependencies to patch known vulnerabilities. To check for vulnerabilities in your installation:
-
-```bash
-# Python dependencies
-pip install safety
-safety check
-
-# Node dependencies
-npm audit
-```
-
-## Contact
-
-For any security concerns that should not be public, please use GitHub's security advisory feature or contact the maintainers directly through GitHub.
-
-Thank you for helping keep PHAL and our users safe!
+We follow the principle of Coordinated Vulnerability Disclosure.
