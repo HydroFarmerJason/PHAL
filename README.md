@@ -24,10 +24,6 @@ PHAL (Pluripotent Hardware Abstraction Layer) is a revolutionary open-source pla
 
 ## 🚀 Quick Start
 
-### Try the Demo (No Installation Required)
-
-Visit our [live demo](https://demo.phal.io) to explore PHAL's capabilities with simulated hardware.
-
 ### Docker Installation (Recommended)
 
 ```bash
@@ -120,15 +116,6 @@ PHAL Platform v3.0
 - **Audit Logging**: Complete traceability
 - **Role-Based Access**: Granular permissions
 - **High Availability**: Clustering and failover support
-
-## 📚 Documentation
-
-- [Getting Started Guide](https://docs.phal.io/getting-started)
-- [API Reference](https://docs.phal.io/api)
-- [Hardware Compatibility](https://docs.phal.io/hardware)
-- [Plugin Development](https://docs.phal.io/plugins)
-- [Deployment Guide](https://docs.phal.io/deployment)
-- [Security Best Practices](https://docs.phal.io/security)
 
 ## 🧪 Supported Hardware
 
@@ -232,8 +219,6 @@ kubectl apply -f k8s/
 kubectl get pods -n phal
 ```
 
-See [Deployment Guide](https://docs.phal.io/deployment) for detailed instructions.
-
 ## 📊 Performance
 
 - **Response Time**: <100ms for 95% of requests
@@ -251,15 +236,12 @@ PHAL takes security seriously:
 - Bug bounty program
 - [Security Policy](SECURITY.md)
 
-Report security vulnerabilities to security@phal.io
+Report security vulnerabilities to osce@duck.com
 
 ## 📞 Support & Community
 
 - 💬 [GitHub Discussions](https://github.com/HydroFarmerJason/PHAL/discussions)
 - 🐛 [Issue Tracker](https://github.com/HydroFarmerJason/PHAL/issues)
-- 📧 [Mailing List](https://groups.google.com/g/phal-users)
-- 💼 [Commercial Support](https://phal.io/support)
-- 🎮 [Discord Server](https://discord.gg/phal)
 
 ## 🏛️ License
 
