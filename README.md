@@ -31,10 +31,22 @@ PHAL (Pluripotent Hardware Abstraction Layer) is a revolutionary open-source pla
 git clone https://github.com/HydroFarmerJason/PHAL.git
 cd PHAL
 
+# Build the modern dashboard
+cd phal-platform-v3
+npm install
+npm run build
+cd ..
+
+# Copy built files to the web server directory
+cp -r phal-platform-v3/dist/* frontend/
+
+# (Optional) use the single-file dashboard
+# cp phal-platform-enhanced.html frontend/index.html
+
 # Start with Docker Compose
 docker-compose up -d
 
-# Access at http://localhost:3000
+# Access at http://localhost
 ```
 
 ### Development Setup
@@ -47,7 +59,7 @@ git clone https://github.com/HydroFarmerJason/PHAL.git
 cd PHAL
 
 # Install frontend dependencies
-cd frontend
+cd phal-platform-v3
 npm install
 
 # Install backend dependencies
@@ -55,11 +67,17 @@ cd ../backend
 pip install -r requirements.txt
 
 # Setup environment
+cd ..
 cp .env.example .env
 # Edit .env with your configuration
 
-# Start development servers
-npm run dev:all
+# Start frontend in dev mode
+cd phal-platform-v3
+npm run dev
+
+# In a separate terminal start the backend
+cd ../backend
+uvicorn phal.api:app --reload
 ```
 
 ## 🏗️ Architecture
